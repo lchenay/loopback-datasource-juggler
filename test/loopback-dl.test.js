@@ -28,12 +28,13 @@ describe('ModelBuilder define model', function () {
     modelBuilder.models.should.be.a('object').and.have.property('User', User);
     modelBuilder.definitions.should.be.a('object').and.have.property('User');
 
-    var user = new User({name: 'Joe', age: 20});
+    var user = new User({name: 'Joe', age: 20, xyz: false});
 
     User.modelName.should.equal('User');
     user.should.be.a('object').and.have.property('name', 'Joe');
     user.should.have.property('name', 'Joe');
     user.should.have.property('age', 20);
+    user.should.have.property('xyz', false);
     user.should.not.have.property('bio');
     done(null, User);
   });
@@ -242,6 +243,38 @@ describe('ModelBuilder define model', function () {
     done(null, User);
   });
 
+});
+
+describe('DataSource ping', function() {
+  var ds = new DataSource('memory');
+  ds.settings.connectionTimeout = 50; // ms
+  ds.connector.connect = function(cb) {
+    // Mock up the long delay
+    setTimeout(cb, 100);
+  };
+  ds.connector.ping = function(cb) {
+    cb(new Error('bad connection 2'));
+  }
+
+  it('should report connection errors during ping', function(done) {
+    ds.ping(function(err) {
+      (!!err).should.be.true;
+      err.message.should.be.eql('bad connection 2');
+      done();
+    });
+  });
+
+  it('should cancel invocation after timeout', function(done) {
+    ds.connected = false; // Force connect
+    var Post = ds.define('Post', {
+      title: { type: String, length: 255 }
+    });
+    Post.create(function(err) {
+      (!!err).should.be.true;
+      err.message.should.be.eql('Timeout in connecting after 50 ms');
+      done();
+    });
+  });
 });
 
 describe('DataSource define model', function () {
@@ -903,7 +936,71 @@ describe('Load models with relations', function () {
     assert(Post.relations['user']);
     done();
   });
-
+  
+  it('should set up referencesMany relations', function (done) {
+    var ds = new DataSource('memory');
+  
+    var Post = ds.define('Post', {userId: Number, content: String});
+    var User = ds.define('User', {name: String}, {relations: {posts: {type: 'referencesMany', model: 'Post'}}});
+  
+    assert(User.relations['posts']);
+    done();
+  });
+  
+  it('should set up embedsMany relations', function (done) {
+    var ds = new DataSource('memory');
+  
+    var Post = ds.define('Post', {userId: Number, content: String});
+    var User = ds.define('User', {name: String}, {relations: {posts: {type: 'embedsMany', model: 'Post' }}});
+  
+    assert(User.relations['posts']);
+    done();
+  });
+  
+  it('should set up polymorphic relations', function (done) {
+    var ds = new DataSource('memory');
+  
+    var Author = ds.define('Author', {name: String}, {relations: {
+      pictures: {type: 'hasMany', model: 'Picture', polymorphic: 'imageable'}
+    }});
+    var Picture = ds.define('Picture', {name: String}, {relations: {
+      imageable: {type: 'belongsTo', polymorphic: true}
+    }});
+    
+    assert(Author.relations['pictures']);
+    assert.deepEqual(Author.relations['pictures'].toJSON(), {
+      name: 'pictures',
+      type: 'hasMany',
+      modelFrom: 'Author',
+      keyFrom: 'id',
+      modelTo: 'Picture',
+      keyTo: 'imageableId',
+      multiple: true,
+      polymorphic: { 
+        as: 'imageable',
+        foreignKey: 'imageableId',
+        discriminator: 'imageableType'
+      }
+    });
+    
+    assert(Picture.relations['imageable']);
+    assert.deepEqual(Picture.relations['imageable'].toJSON(), {
+      name: 'imageable',
+      type: 'belongsTo',
+      modelFrom: 'Picture',
+      keyFrom: 'imageableId',
+      modelTo: '<polymorphic>',
+      keyTo: 'id',
+      multiple: false,
+      polymorphic: { 
+        as: 'imageable',
+        foreignKey: 'imageableId',
+        discriminator: 'imageableType'
+      }
+    });
+    done();
+  });
+  
   it('should set up foreign key with the correct type', function (done) {
     var ds = new DataSource('memory');
 
@@ -1010,6 +1107,27 @@ describe('Load models with relations', function () {
 
     assert(Physician.relations['patients']);
     assert(Patient.relations['physicians']);
+    done();
+  });
+
+  it('should handle hasMany through options', function (done) {
+    var ds = new DataSource('memory');
+    var Physician = ds.createModel('Physician', {
+      name: String
+    }, {relations: {patients: {model: 'Patient', type: 'hasMany', foreignKey: 'leftId', through: 'Appointment'}}});
+
+    var Patient = ds.createModel('Patient', {
+      name: String
+    }, {relations: {physicians: {model: 'Physician', type: 'hasMany', foreignKey: 'rightId', through: 'Appointment'}}});
+
+    var Appointment = ds.createModel('Appointment', {
+      physicianId: Number,
+      patientId: Number,
+      appointmentDate: Date
+    }, {relations: {patient: {type: 'belongsTo', model: 'Patient'}, physician: {type: 'belongsTo', model: 'Physician'}}});
+
+    assert(Physician.relations['patients'].keyTo === 'leftId');
+    assert(Patient.relations['physicians'].keyTo === 'rightId');
     done();
   });
 

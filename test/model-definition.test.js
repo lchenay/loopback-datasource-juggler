@@ -36,7 +36,9 @@ describe('ModelDefinition class', function () {
     assert.equal(json.properties.approved.type, "Boolean");
     assert.equal(json.properties.joinedAt.type, "Date");
     assert.equal(json.properties.age.type, "Number");
-
+    
+    assert.deepEqual(User.toJSON(), json);
+    
     done();
 
   });
@@ -53,6 +55,8 @@ describe('ModelDefinition class', function () {
     });
 
     User.build();
+    
+    var json = User.toJSON();
 
     User.defineProperty("id", {type: "number", id: true});
     assert.equal(User.properties.name.type, String);
@@ -60,8 +64,12 @@ describe('ModelDefinition class', function () {
     assert.equal(User.properties.approved.type, Boolean);
     assert.equal(User.properties.joinedAt.type, Date);
     assert.equal(User.properties.age.type, Number);
-
+    
     assert.equal(User.properties.id.type, Number);
+    
+    json = User.toJSON();
+    assert.deepEqual(json.properties.id, {type: 'Number', id: true});
+    
     done();
 
   });
